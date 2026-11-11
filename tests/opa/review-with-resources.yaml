@@ -1,0 +1,17 @@
+﻿review:
+  object:
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: test-with-resources
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.25
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

@@ -1,0 +1,10 @@
+﻿review:
+  object:
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: test-no-resources
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.25

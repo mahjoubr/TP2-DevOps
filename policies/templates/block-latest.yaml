@@ -1,0 +1,35 @@
+
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+
+metadata:
+  name: k8sblocklatest
+
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sBlockLatest
+
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sblocklatest
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          regex.match("(^|/)[^/]+:latest(@.*)?$", container.image)
+          msg := sprintf(
+            "Container image %q uses the forbidden latest tag",
+            [container.image]
+          )
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.initContainers[_]
+          regex.match("(^|/)[^/]+:latest(@.*)?$", container.image)
+          msg := sprintf(
+            "Init container image %q uses the forbidden latest tag",
+            [container.image]
+          )
+        }

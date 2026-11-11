@@ -1,0 +1,10 @@
+﻿review:
+  object:
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: test-latest-pod
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:latest
