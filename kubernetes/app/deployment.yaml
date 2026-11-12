@@ -20,9 +20,14 @@ spec:
     spec:
       containers:
         - name: catalog
-          image: ghcr.io/mahjoubr/tp2-devops:37baac1ea83c990c6c4f1ef29ba7d80e8255a6dc
+          image: ghcr.io/mahjoubr/tp2-devops:049000f309d78fc0e679609839659e80e8b5e634
           ports:
             - containerPort: 8000
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: catalog
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://tempo.monitoring.svc:4318
           resources:
             requests:
               cpu: "100m"
