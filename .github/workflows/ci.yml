@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-                    pip install --only-binary :all: -r requirements.txt
+          pip install --only-binary :all: -r requirements.txt
           pip install --only-binary :all: pytest pytest-cov flake8 httpx
 
       - name: Lint
