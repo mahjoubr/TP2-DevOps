@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: catalog
-          image: ghcr.io/mahjoubr/tp2-devops:2c22e17c05937b7e333689811772609a4ee59e36
+          image: ghcr.io/mahjoubr/tp2-devops:37baac1ea83c990c6c4f1ef29ba7d80e8255a6dc
           ports:
             - containerPort: 8000
           resources:
