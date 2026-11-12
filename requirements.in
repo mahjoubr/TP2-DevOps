@@ -1,0 +1,9 @@
+﻿fastapi
+uvicorn[standard]
+prometheus-client
+httpx
+pytest
+pytest-cov
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp-proto-http

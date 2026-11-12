@@ -1,13 +1,58 @@
-
-from fastapi import FastAPI, HTTPException
-from prometheus_client import Counter, Histogram, generate_latest
-from fastapi.responses import Response
-import time
+﻿import json
+import logging
+import os
 import random
+import sys
+import time
 
-app = FastAPI(title="TP2 DevOps - Product Catalog")
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from prometheus_client import Counter, Histogram, generate_latest
 
-# Prometheus metrics
+# ---------- OpenTelemetry tracing ----------
+provider = TracerProvider(
+    resource=Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", "catalog")})
+)
+if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):  # pragma: no cover
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+trace.set_tracer_provider(provider)
+
+
+# ---------- Structured JSON logs with trace correlation ----------
+class JsonFormatter(logging.Formatter):
+    FIELDS = ("http_method", "http_path", "http_status", "duration_ms")
+
+    def format(self, record):
+        ctx = trace.get_current_span().get_span_context()
+        payload = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "trace_id": format(ctx.trace_id, "032x") if ctx.is_valid else None,
+            "span_id": format(ctx.span_id, "016x") if ctx.is_valid else None,
+        }
+        for field in self.FIELDS:
+            if hasattr(record, field):
+                payload[field] = getattr(record, field)
+        return json.dumps(payload)
+
+
+logger = logging.getLogger("catalog")
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(JsonFormatter())
+logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+# ---------- Prometheus metrics ----------
 REQUEST_COUNT = Counter(
     "http_requests_total",
     "Total number of HTTP requests",
@@ -16,8 +61,41 @@ REQUEST_COUNT = Counter(
 
 REQUEST_LATENCY = Histogram(
     "http_request_duration_seconds",
-    "HTTP request duration"
+    "HTTP request duration",
+    ["endpoint"],
+    buckets=(0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10)
 )
+
+app = FastAPI(title="TP2 DevOps - Product Catalog")
+
+
+@app.middleware("http")
+async def observe_requests(request: Request, call_next):
+    start = time.perf_counter()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        route = request.scope.get("route")
+        endpoint = route.path if route else "unmatched"
+        if endpoint != "/metrics":
+            duration = time.perf_counter() - start
+            REQUEST_COUNT.labels(endpoint, request.method, str(status)).inc()
+            REQUEST_LATENCY.labels(endpoint).observe(duration)
+            logger.info(
+                "request",
+                extra={
+                    "http_method": request.method,
+                    "http_path": endpoint,
+                    "http_status": status,
+                    "duration_ms": round(duration * 1000, 1),
+                },
+            )
+
+
+FastAPIInstrumentor.instrument_app(app, excluded_urls="metrics")
 
 # Simulated product database
 products = [
@@ -29,13 +107,11 @@ products = [
 
 @app.get("/")
 def home():
-    REQUEST_COUNT.labels("/", "GET", "200").inc()
     return {"message": "Welcome to the Product Catalog API"}
 
 
 @app.get("/products")
 def get_products():
-    REQUEST_COUNT.labels("/products", "GET", "200").inc()
     return products
 
 
@@ -43,14 +119,7 @@ def get_products():
 def get_product(product_id: int):
     for product in products:
         if product["id"] == product_id:
-            REQUEST_COUNT.labels(
-                "/products/{product_id}", "GET", "200"
-            ).inc()
             return product
-
-    REQUEST_COUNT.labels(
-        "/products/{product_id}", "GET", "404"
-    ).inc()
 
     raise HTTPException(status_code=404, detail="Product not found")
 
@@ -62,9 +131,6 @@ def checkout():
     time.sleep(2)
 
     duration = time.time() - start
-    REQUEST_LATENCY.observe(duration)
-
-    REQUEST_COUNT.labels("/checkout", "GET", "200").inc()
 
     return {
         "message": "Checkout completed",
@@ -75,13 +141,11 @@ def checkout():
 @app.get("/flaky")
 def flaky():
     if random.random() < 0.5:
-        REQUEST_COUNT.labels("/flaky", "GET", "500").inc()
         raise HTTPException(
             status_code=500,
             detail="Simulated intermittent server error"
         )
 
-    REQUEST_COUNT.labels("/flaky", "GET", "200").inc()
     return {"message": "Request successful"}
 
 

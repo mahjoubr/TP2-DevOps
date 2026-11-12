@@ -1,6 +1,9 @@
+﻿import json
+import logging
 
 import app as api
 from fastapi.testclient import TestClient
+from opentelemetry import trace
 
 client = TestClient(api.app)
 
@@ -66,3 +69,38 @@ def test_metrics():
     assert response.status_code == 200
     assert "http_requests_total" in response.text
     assert "http_request_duration_seconds" in response.text
+
+
+# Test 9: Unknown routes use a bounded label (no cardinality explosion)
+def test_unknown_route_label():
+    response = client.get("/does-not-exist")
+    assert response.status_code == 404
+    assert 'endpoint="unmatched"' in client.get("/metrics").text
+
+
+# Test 10: Metrics are labelled per endpoint and expose the 200 ms bucket
+def test_metrics_have_endpoint_labels():
+    client.get("/products")
+    text = client.get("/metrics").text
+    assert 'http_requests_total{endpoint="/products",method="GET",status="200"}' in text
+    assert 'le="0.2"' in text
+
+
+# Test 11: Failed requests are counted with their 5xx status
+def test_flaky_error_is_counted(monkeypatch):
+    monkeypatch.setattr(api.random, "random", lambda: 0.1)
+    client.get("/flaky")
+    assert 'endpoint="/flaky",method="GET",status="500"' in client.get("/metrics").text
+
+
+# Test 12: JSON logs carry trace_id and span_id inside a span, null outside
+def test_json_log_contains_trace_id():
+    tracer = trace.get_tracer("test")
+    record = logging.LogRecord("catalog", logging.INFO, __file__, 1, "hello", None, None)
+    with tracer.start_as_current_span("unit-test"):
+        inside = json.loads(api.JsonFormatter().format(record))
+    outside = json.loads(api.JsonFormatter().format(record))
+    assert inside["message"] == "hello"
+    assert len(inside["trace_id"]) == 32
+    assert len(inside["span_id"]) == 16
+    assert outside["trace_id"] is None
