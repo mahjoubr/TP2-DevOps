@@ -20,8 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --only-binary :all: -r requirements.txt
-          pip install --only-binary :all: pytest pytest-cov flake8 httpx
+          pip install --only-binary :all: -r requirements.txt -r requirements-dev.txt
 
       - name: Lint
         run: flake8 app.py --max-line-length=120
